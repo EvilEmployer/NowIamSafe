@@ -35,6 +35,26 @@ Stats stats() noexcept;
 // Change the reaction for one fault class at runtime (overrides the Config value).
 void set_policy(FaultClass cls, Action action) noexcept;
 
+// v2: inline-hook KiUserExceptionDispatcher so faults are seen before the VEH
+// chain (above software that clears the VEH list or runs its own Kued hook).
+// Call after init(). Returns false if the prologue could not be analyzed or the
+// patch failed. Version/ABI sensitive — see docs/DESIGN.md.
+bool install_kued() noexcept;
+
+// Restore the original KiUserExceptionDispatcher bytes.
+bool uninstall_kued() noexcept;
+
+// Number of faults the Kued hook has processed (0 until install_kued succeeds).
+std::uint64_t kued_hits() noexcept;
+
+// What the prologue analysis extracted (for diagnostics across Windows builds).
+struct KuedInfo {
+    std::uint32_t exc_off;  // ExceptionRecord offset from RSP
+    std::uint32_t ctx_off;  // ContextRecord offset from RSP
+    const void* dispatch;   // resolved RtlDispatchException
+};
+KuedInfo kued_info() noexcept;
+
 }  // namespace nias
 
 // Opaque storage for a safe-point, allocated by the caller (typically on the
