@@ -1,0 +1,33 @@
+# build
+/build/
+/build-*/
+/out/
+cmake-build-*/
+_deps/
+
+# objects / libs / executables
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dll
+*.exe
+*.pdb
+*.ilk
+*.exp
+
+# cmake
+CMakeCache.txt
+CMakeFiles/
+CMakeUserPresets.json
+
+# editors / tooling
+.vs/
+.vscode/
+.idea/
+compile_commands.json
+
+# local wine / test scratch
+wineprefix/
+*.nias.log
