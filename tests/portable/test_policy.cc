@@ -4,6 +4,27 @@
 
 using namespace nias;
 
+// The classification and planning pipeline is constexpr and total, so the core
+// of the decision table is pinned at compile time; the TEST_CASEs below cover
+// the same ground at runtime for readable failure output.
+namespace {
+constexpr FaultEvent kAv = [] {
+    FaultEvent e;
+    e.cls = FaultClass::access_violation;
+    e.native_code = 0xC0000005u;
+    e.av_access = AvAccess::read;
+    return e;
+}();
+
+static_assert(classify(0xC0000005u) == FaultClass::access_violation);
+static_assert(classify(0xE06D7363u) == FaultClass::cpp_exception);
+static_assert(classify(0x12345678u) == FaultClass::other);
+static_assert(PolicyTable{}.get(FaultClass::stack_overflow).action == Action::fast_fail);
+static_assert(plan(kAv, PolicyTable{}, RuntimeFacts{.has_pdata = true}).action ==
+              Action::unwind_one);
+static_assert(plan(kAv, PolicyTable{}, RuntimeFacts{.has_pdata = false}).leaf_pop);
+}  // namespace
+
 TEST_CASE("classify maps native codes") {
     CHECK(classify(0xC0000005u) == FaultClass::access_violation);
     CHECK(classify(0xC000001Du) == FaultClass::illegal_instruction);

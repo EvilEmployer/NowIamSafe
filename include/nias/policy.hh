@@ -25,13 +25,25 @@ struct Policy {
     Action action = Action::pass_through;
 };
 
-// Per-class reaction table. Constructed with the DESIGN.md §5 defaults.
+// Per-class reaction table, constructed with the DESIGN.md §5 defaults. constexpr
+// throughout so a caller can build and query a table at compile time (the tests
+// do), and so the default table is a constant with no runtime initializer.
 class PolicyTable {
 public:
-    PolicyTable() noexcept;
+    constexpr PolicyTable() noexcept {
+        set(FaultClass::access_violation, Action::unwind_one);
+        set(FaultClass::illegal_instruction, Action::unwind_one);
+        set(FaultClass::divide_by_zero, Action::unwind_one);
+        set(FaultClass::int_overflow, Action::unwind_one);
+        set(FaultClass::misalignment, Action::unwind_one);
+        set(FaultClass::stack_overflow, Action::fast_fail);
+        set(FaultClass::breakpoint, Action::pass_through);
+        set(FaultClass::cpp_exception, Action::pass_through);
+        set(FaultClass::other, Action::pass_through);
+    }
 
-    void set(FaultClass c, Action a) noexcept { table_[idx(c)].action = a; }
-    Policy get(FaultClass c) const noexcept { return table_[idx(c)]; }
+    constexpr void set(FaultClass c, Action a) noexcept { table_[idx(c)].action = a; }
+    [[nodiscard]] constexpr Policy get(FaultClass c) const noexcept { return table_[idx(c)]; }
 
 private:
     static constexpr std::size_t idx(FaultClass c) noexcept {
@@ -56,8 +68,56 @@ struct RecoveryPlan {
     std::uint32_t stub_frame_adjust = 0;
 };
 
-// Resolve the policy for an event into concrete steps. Pure and total.
-RecoveryPlan plan(const FaultEvent& ev, const PolicyTable& pt,
-                  const RuntimeFacts& rf) noexcept;
+namespace detail {
+
+// Resolve a hardware-fault recovery when the chosen action is a frame unwind.
+// Picks the concrete mechanism from the runtime facts:
+//   .pdata present        -> RtlVirtualUnwind one frame
+//   no .pdata, no frame    -> leaf: pop the return address
+//   no .pdata, has frame   -> stub fallback sized to the scanned prologue
+constexpr void resolve_unwind(RecoveryPlan& p, const RuntimeFacts& rf) noexcept {
+    p.write_sentinel = true;
+    if (rf.has_pdata) {
+        p.action = Action::unwind_one;
+        p.leaf_pop = false;
+    } else if (rf.prologue_alloc == 0) {
+        p.action = Action::unwind_one;
+        p.leaf_pop = true;
+    } else {
+        p.action = Action::stub_redirect;
+        p.stub_frame_adjust = rf.prologue_alloc;
+    }
+}
+
+}  // namespace detail
+
+// Resolve the policy for an event into concrete steps. Pure and total, hence
+// constexpr: the plan for a given (class, facts) is verified at compile time.
+[[nodiscard]] constexpr RecoveryPlan plan(const FaultEvent& ev, const PolicyTable& pt,
+                                          const RuntimeFacts& rf) noexcept {
+    RecoveryPlan p;
+    p.action = pt.get(ev.cls).action;
+
+    switch (p.action) {
+        case Action::unwind_one:
+            detail::resolve_unwind(p, rf);
+            break;
+        case Action::unwind_to_safepoint:
+            if (!rf.safepoint_available) {
+                detail::resolve_unwind(p, rf);  // no safe-point up-stack: degrade
+            }
+            break;
+        case Action::stub_redirect:
+            p.write_sentinel = true;
+            p.stub_frame_adjust = rf.prologue_alloc;
+            break;
+        case Action::skip_instruction:
+        case Action::pass_through:
+        case Action::fast_fail:
+        case Action::terminate:
+            break;
+    }
+    return p;
+}
 
 }  // namespace nias

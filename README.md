@@ -34,7 +34,10 @@ include-пути, `ntdll`, Zydis и asmjit.
 
 Тулчейн — **LLVM/Clang** (`x86_64-pc-windows-msvc`). MSVC `cl.exe` не
 поддерживается: asm-thunk написан в GAS-синтаксисе и собирается ассемблером
-clang. `-std=c++2c` на clang 18+; флор — C++20 (`-DNIAS_CXX_STANDARD=20`).
+clang. Стандарт — **C++26** (`-std=c++2c`), это требование: код использует
+C++26-конструкции (например `= delete("reason")`), которые старые режимы
+отвергают. Нужен clang ≥ 19; CI пинит clang 20 на всех ногах. Рефлексии (P2996)
+нет ни в одном релизном clang — поэтому она намеренно не используется.
 
 ### CMake, `add_subdirectory`
 
@@ -143,7 +146,7 @@ scripts/run-wine-harness.sh
 
 | Уровень | Где | Что |
 |---|---|---|
-| L1 | нативно, Linux/clang 18 + ASan/UBSan | portable-core: Zydis, asmjit, ring, policy, decode |
+| L1 | нативно, Linux/clang 20 + ASan/UBSan | portable-core: Zydis, asmjit, ring, policy, decode |
 | L2 | wine64 + clang→mingw | интеграция VEH/unwind/stub/safe-point + Kued на живом процессе |
 | L3 | GitHub Actions `windows-latest`, LLVM/Clang | **авторитетно**: реальный ntdll, полный сьют (`portable` + `integration` + `kued`) |
 

@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <span>
 #include <type_traits>
 
 namespace nias {
@@ -55,9 +56,9 @@ std::size_t record_size(const FaultRecord& r) noexcept;
 
 // Serialize `r` into `out` (compact form). Returns bytes written, or 0 if the
 // buffer is too small or the record is malformed.
-std::size_t encode(const FaultRecord& r, std::uint8_t* out, std::size_t cap) noexcept;
+std::size_t encode(const FaultRecord& r, std::span<std::uint8_t> out) noexcept;
 
 // Parse a compact record. Returns false on bad magic/version/length.
-bool decode(const std::uint8_t* in, std::size_t len, FaultRecord& out) noexcept;
+bool decode(std::span<const std::uint8_t> in, FaultRecord& out) noexcept;
 
 }  // namespace nias

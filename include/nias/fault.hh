@@ -59,7 +59,31 @@ struct FaultEvent {
 };
 
 // Maps a native Windows exception code (e.g. 0xC0000005) to a FaultClass.
-// Pure function: a switch, no OS calls.
-FaultClass classify(std::uint32_t native_code) noexcept;
+// Pure and total, so it is constexpr: the classification tables in the tests
+// are checked at compile time, and the hot path pays nothing for it.
+[[nodiscard]] constexpr FaultClass classify(std::uint32_t native_code) noexcept {
+    switch (native_code) {
+        case 0xC0000005u:  // ACCESS_VIOLATION
+            return FaultClass::access_violation;
+        case 0xC000001Du:  // ILLEGAL_INSTRUCTION
+        case 0xC0000096u:  // PRIVILEGED_INSTRUCTION
+            return FaultClass::illegal_instruction;
+        case 0xC0000094u:  // INTEGER_DIVIDE_BY_ZERO
+        case 0xC000008Eu:  // FLOAT_DIVIDE_BY_ZERO
+            return FaultClass::divide_by_zero;
+        case 0xC0000095u:  // INTEGER_OVERFLOW
+            return FaultClass::int_overflow;
+        case 0x80000002u:  // DATATYPE_MISALIGNMENT
+            return FaultClass::misalignment;
+        case 0xC00000FDu:  // STACK_OVERFLOW
+            return FaultClass::stack_overflow;
+        case 0x80000003u:  // BREAKPOINT
+            return FaultClass::breakpoint;
+        case 0xE06D7363u:  // MSVC C++ throw
+            return FaultClass::cpp_exception;
+        default:
+            return FaultClass::other;
+    }
+}
 
 }  // namespace nias

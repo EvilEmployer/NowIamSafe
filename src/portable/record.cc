@@ -17,27 +17,26 @@ std::size_t record_size(const FaultRecord& r) noexcept {
     return kHeaderBytes + fc * sizeof(FaultRecord::Frame);
 }
 
-std::size_t encode(const FaultRecord& r, std::uint8_t* out,
-                   std::size_t cap) noexcept {
+std::size_t encode(const FaultRecord& r, std::span<std::uint8_t> out) noexcept {
     if (r.frame_count > kMaxFrames) {
         return 0;
     }
     const std::size_t sz = record_size(r);
-    if (cap < sz) {
+    if (out.size() < sz) {
         return 0;
     }
     // The header and frame array are contiguous in a packed struct, so the
     // compact form is just the first `sz` bytes.
-    std::memcpy(out, &r, sz);
+    std::memcpy(out.data(), &r, sz);
     return sz;
 }
 
-bool decode(const std::uint8_t* in, std::size_t len, FaultRecord& out) noexcept {
-    if (in == nullptr || len < kHeaderBytes) {
+bool decode(std::span<const std::uint8_t> in, FaultRecord& out) noexcept {
+    if (in.size() < kHeaderBytes) {
         return false;
     }
     FaultRecord tmp{};
-    std::memcpy(&tmp, in, kHeaderBytes);
+    std::memcpy(&tmp, in.data(), kHeaderBytes);
     if (tmp.magic != kRecordMagic || tmp.version != kRecordVersion) {
         return false;
     }
@@ -45,10 +44,10 @@ bool decode(const std::uint8_t* in, std::size_t len, FaultRecord& out) noexcept 
         return false;
     }
     const std::size_t sz = kHeaderBytes + tmp.frame_count * sizeof(FaultRecord::Frame);
-    if (len < sz) {
+    if (in.size() < sz) {
         return false;
     }
-    std::memcpy(tmp.frames, in + kHeaderBytes,
+    std::memcpy(tmp.frames, in.data() + kHeaderBytes,
                 tmp.frame_count * sizeof(FaultRecord::Frame));
     out = tmp;
     return true;

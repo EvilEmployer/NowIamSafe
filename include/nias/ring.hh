@@ -35,6 +35,13 @@ public:
         }
     }
 
+    // The ring owns its cells and is shared by reference across producer threads
+    // and the drain thread; copying or moving it would tear live indices.
+    ByteRing(const ByteRing&) = delete("the fault-log ring is a shared singleton");
+    ByteRing& operator=(const ByteRing&) = delete("the fault-log ring is a shared singleton");
+    ByteRing(ByteRing&&) = delete("the fault-log ring is a shared singleton");
+    ByteRing& operator=(ByteRing&&) = delete("the fault-log ring is a shared singleton");
+
     // Copies up to SlotBytes from `data`. Returns false when the ring is full.
     bool push(const std::uint8_t* data, std::uint32_t len) noexcept {
         if (len > SlotBytes) {

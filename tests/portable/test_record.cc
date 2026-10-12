@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <span>
 #include <vector>
 
 #include "nias/record.hh"
@@ -37,12 +38,12 @@ TEST_CASE("record roundtrip preserves every field") {
     const FaultRecord in = sample(5);
     std::vector<std::uint8_t> buf(sizeof(FaultRecord));
 
-    const std::size_t n = encode(in, buf.data(), buf.size());
+    const std::size_t n = encode(in, buf);
     REQUIRE(n > 0);
     CHECK(n == record_size(in));
 
     FaultRecord out{};
-    REQUIRE(decode(buf.data(), n, out));
+    REQUIRE(decode(std::span(buf.data(), n), out));
     CHECK(out.magic == in.magic);
     CHECK(out.frame_count == in.frame_count);
     CHECK(out.timestamp == in.timestamp);
@@ -62,31 +63,31 @@ TEST_CASE("compact size shrinks with fewer frames") {
 TEST_CASE("encode rejects a buffer that is too small") {
     const FaultRecord in = sample(3);
     std::vector<std::uint8_t> tiny(8);
-    CHECK(encode(in, tiny.data(), tiny.size()) == 0);
+    CHECK(encode(in, tiny) == 0);
 }
 
 TEST_CASE("decode rejects bad magic") {
     const FaultRecord in = sample(2);
     std::vector<std::uint8_t> buf(sizeof(FaultRecord));
-    const std::size_t n = encode(in, buf.data(), buf.size());
+    const std::size_t n = encode(in, buf);
     REQUIRE(n > 0);
     buf[0] ^= 0xFF;  // corrupt magic
     FaultRecord out{};
-    CHECK_FALSE(decode(buf.data(), n, out));
+    CHECK_FALSE(decode(std::span(buf.data(), n), out));
 }
 
 TEST_CASE("decode rejects truncation") {
     const FaultRecord in = sample(8);
     std::vector<std::uint8_t> buf(sizeof(FaultRecord));
-    const std::size_t n = encode(in, buf.data(), buf.size());
+    const std::size_t n = encode(in, buf);
     REQUIRE(n > 0);
     FaultRecord out{};
-    CHECK_FALSE(decode(buf.data(), n - 1, out));
+    CHECK_FALSE(decode(std::span(buf.data(), n - 1), out));
 }
 
 TEST_CASE("encode rejects an over-long frame count") {
     FaultRecord in = sample(0);
     in.frame_count = kMaxFrames + 1;
     std::vector<std::uint8_t> buf(sizeof(FaultRecord) * 2);
-    CHECK(encode(in, buf.data(), buf.size()) == 0);
+    CHECK(encode(in, buf) == 0);
 }
