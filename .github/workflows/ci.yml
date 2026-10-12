@@ -69,17 +69,11 @@ jobs:
   # and ntdll.lib; msvc-dev-cmd puts them on INCLUDE/LIB, clang does the rest.
   windows:
     runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        driver: [clang]
     steps:
       - uses: actions/checkout@v4
-      - name: install LLVM + Ninja
+      - name: install Ninja
         shell: pwsh
-        run: |
-          choco install llvm ninja -y --no-progress
-          "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+        run: choco install ninja -y --no-progress
       - name: set up MSVC SDK environment
         uses: ilammy/msvc-dev-cmd@v1
         with:
@@ -89,11 +83,11 @@ jobs:
         run: clang --version
       - name: configure
         shell: pwsh
-        run: |
-          $cc  = if ("${{ matrix.driver }}" -eq "clang-cl") { "clang-cl" } else { "clang" }
-          $cxx = if ("${{ matrix.driver }}" -eq "clang-cl") { "clang-cl" } else { "clang++" }
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo `
-            -DCMAKE_C_COMPILER=$cc -DCMAKE_CXX_COMPILER=$cxx
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DCMAKE_C_COMPILER=clang
+          -DCMAKE_CXX_COMPILER=clang++
       - name: build
         run: cmake --build build -j
       - name: test
