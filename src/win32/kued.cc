@@ -41,6 +41,13 @@ struct KuedLayout {
 // RSP, so the thunk adapts to the build instead of hard-coding offsets. The
 // register convention is fixed by RtlDispatchException(ExceptionRecord in RCX,
 // ContextRecord in RDX).
+//
+// The pointers are not always a single `lea reg, [rsp+disp]`: Win11 (26100)
+// splits it into `mov reg, rsp` + `add reg, imm`, with the same sequence
+// appearing twice (once to feed the instrumentation callback, once for the real
+// RtlDispatchException call). So track each of RCX/RDX as a running offset from
+// RSP and read it off at the first relative CALL (RtlDispatchException); the
+// indirect callback call does not end the walk.
 KuedLayout analyze_kued(const std::uint8_t* code, std::size_t avail) noexcept {
     KuedLayout r;
     ZydisDecoder dec;
@@ -48,7 +55,20 @@ KuedLayout analyze_kued(const std::uint8_t* code, std::size_t avail) noexcept {
                                        ZYDIS_STACK_WIDTH_64))) {
         return r;
     }
-    bool got_exc = false, got_ctx = false, got_dispatch = false;
+
+    // Per-register model: offset from entry RSP, valid only while tracks_rsp.
+    struct RspRel {
+        std::int64_t off = 0;
+        bool tracks = false;
+    } rcx, rdx;
+
+    auto reg_slot = [&](ZydisRegister reg) -> RspRel* {
+        if (reg == ZYDIS_REGISTER_RCX) return &rcx;
+        if (reg == ZYDIS_REGISTER_RDX) return &rdx;
+        return nullptr;
+    };
+
+    bool got_dispatch = false, got_offsets = false;
     std::size_t off = 0;
     while (off < avail) {
         ZydisDecodedInstruction insn;
@@ -57,54 +77,62 @@ KuedLayout analyze_kued(const std::uint8_t* code, std::size_t avail) noexcept {
                                                  &insn, ops))) {
             break;
         }
-        // The prologue's first relative CALL is RtlDispatchException (the
-        // instrumentation-callback call is indirect, through a register).
-        if (insn.mnemonic == ZYDIS_MNEMONIC_CALL && !got_dispatch) {
-            for (ZyanU8 i = 0; i < insn.operand_count; ++i) {
-                if (ops[i].type == ZYDIS_OPERAND_TYPE_IMMEDIATE &&
-                    ops[i].imm.is_relative) {
-                    ZyanU64 abs = 0;
-                    if (ZYAN_SUCCESS(ZydisCalcAbsoluteAddress(
-                            &insn, &ops[i],
-                            reinterpret_cast<ZyanU64>(code + off), &abs))) {
-                        r.dispatch = abs;
-                        got_dispatch = true;
-                    }
-                    break;
+
+        // First relative CALL is RtlDispatchException (the callback call is
+        // indirect, through a register). Snapshot the record offsets there.
+        if (insn.mnemonic == ZYDIS_MNEMONIC_CALL && !got_dispatch &&
+            insn.operand_count_visible >= 1 &&
+            ops[0].type == ZYDIS_OPERAND_TYPE_IMMEDIATE &&
+            ops[0].imm.is_relative) {
+            ZyanU64 abs = 0;
+            if (ZYAN_SUCCESS(ZydisCalcAbsoluteAddress(
+                    &insn, &ops[0], reinterpret_cast<ZyanU64>(code + off),
+                    &abs))) {
+                r.dispatch = abs;
+                got_dispatch = true;
+                if (rcx.tracks && rdx.tracks) {
+                    r.exc_off = static_cast<std::uint32_t>(rcx.off);
+                    r.ctx_off = static_cast<std::uint32_t>(rdx.off);
+                    got_offsets = true;
                 }
             }
         }
-        if (insn.operand_count >= 2) {
-            const ZydisDecodedOperand& d = ops[0];
-            const ZydisDecodedOperand& s = ops[1];
-            const bool mov_from_rsp =
-                insn.mnemonic == ZYDIS_MNEMONIC_MOV &&
-                s.type == ZYDIS_OPERAND_TYPE_REGISTER &&
-                s.reg.value == ZYDIS_REGISTER_RSP;
-            const bool lea_rsp =
-                insn.mnemonic == ZYDIS_MNEMONIC_LEA &&
-                s.type == ZYDIS_OPERAND_TYPE_MEMORY &&
-                s.mem.base == ZYDIS_REGISTER_RSP;
-            if (d.type == ZYDIS_OPERAND_TYPE_REGISTER &&
-                d.reg.value == ZYDIS_REGISTER_RCX) {
-                if (mov_from_rsp) { r.exc_off = 0; got_exc = true; }
-                else if (lea_rsp) { r.exc_off = static_cast<std::uint32_t>(s.mem.disp.value); got_exc = true; }
-            }
-            if (d.type == ZYDIS_OPERAND_TYPE_REGISTER &&
-                d.reg.value == ZYDIS_REGISTER_RDX) {
-                if (mov_from_rsp) { r.ctx_off = 0; got_ctx = true; }
-                else if (lea_rsp) { r.ctx_off = static_cast<std::uint32_t>(s.mem.disp.value); got_ctx = true; }
+
+        // Update the RSP-relative model for RCX/RDX.
+        if (insn.operand_count_visible >= 2 &&
+            ops[0].type == ZYDIS_OPERAND_TYPE_REGISTER) {
+            RspRel* dst = reg_slot(ops[0].reg.value);
+            if (dst != nullptr) {
+                const ZydisDecodedOperand& s = ops[1];
+                if (insn.mnemonic == ZYDIS_MNEMONIC_MOV &&
+                    s.type == ZYDIS_OPERAND_TYPE_REGISTER &&
+                    s.reg.value == ZYDIS_REGISTER_RSP) {
+                    dst->off = 0;
+                    dst->tracks = true;
+                } else if (insn.mnemonic == ZYDIS_MNEMONIC_LEA &&
+                           s.type == ZYDIS_OPERAND_TYPE_MEMORY &&
+                           s.mem.base == ZYDIS_REGISTER_RSP &&
+                           s.mem.index == ZYDIS_REGISTER_NONE) {
+                    dst->off = s.mem.disp.value;
+                    dst->tracks = true;
+                } else if (insn.mnemonic == ZYDIS_MNEMONIC_ADD && dst->tracks &&
+                           s.type == ZYDIS_OPERAND_TYPE_IMMEDIATE) {
+                    dst->off += s.imm.value.s;
+                } else {
+                    dst->tracks = false;  // clobbered some other way
+                }
             }
         }
+
         off += insn.length;
         if (r.patch_len < 14) {
             r.patch_len = off;
         }
-        if (got_exc && got_ctx && got_dispatch && r.patch_len >= 14) {
+        if (got_dispatch) {
             break;
         }
     }
-    r.ok = got_exc && got_ctx && got_dispatch && r.patch_len >= 14 &&
+    r.ok = got_offsets && got_dispatch && r.patch_len >= 14 &&
            r.patch_len <= 32;
     return r;
 }
