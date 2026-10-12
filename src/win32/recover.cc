@@ -101,11 +101,25 @@ RuntimeFacts gather_facts(const CONTEXT& ctx) noexcept {
     RuntimeFacts f;
     DWORD64 image_base = 0;
     f.has_pdata = RtlLookupFunctionEntry(ctx.Rip, &image_base, nullptr) != nullptr;
-    // Prologue scanning for the no-.pdata stub path is deferred (needs the
-    // function start, which is only known via unwind data); leaf-pop handles
-    // the common frameless case.
+    f.safepoint_available = safepoint_available();
     f.prologue_alloc = 0;
-    f.safepoint_available = false;
+
+    // No unwind data: try to size the frame for the stub fallback. Read only
+    // within RIP's own page (it is mapped and executable, so reading back and
+    // forth inside it cannot fault); a function start in an earlier page is
+    // simply not found and we fall back to a leaf pop.
+    if (!f.has_pdata) {
+        constexpr std::uint64_t kPageMask = 0xFFFull;
+        constexpr std::size_t kLookback = 256;
+        const std::uint64_t page = ctx.Rip & ~kPageMask;
+        const std::size_t rip_off = static_cast<std::size_t>(ctx.Rip - page);
+        const auto* bytes = reinterpret_cast<const std::uint8_t*>(page);
+        if (const auto start =
+                find_function_start(bytes, rip_off + 1, rip_off, kLookback)) {
+            const std::size_t avail = (rip_off + 1) - *start;
+            f.prologue_alloc = scan_prologue_alloc(bytes + *start, avail);
+        }
+    }
     return f;
 }
 
@@ -154,9 +168,10 @@ Disposition apply(const RecoveryPlan& p, CONTEXT& ctx) noexcept {
         }
 
         case Action::unwind_to_safepoint:
-            // Safe-point unwinding is an opt-in extension; without it, defer to
-            // the next handler rather than guess.
-            return Disposition::continue_search;
+            // Reached only when a safe-point is registered (plan() degrades to
+            // unwind_one otherwise). The handler performs the non-returning
+            // jump after clearing its re-entry guard.
+            return Disposition::jump_safepoint;
     }
     return Disposition::continue_search;
 }
