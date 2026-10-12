@@ -1,0 +1,94 @@
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  # L1 — portable core, native, with sanitizers. Fast correctness signal.
+  linux-portable:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang ninja-build cmake libclang-rt-18-dev
+      - name: build + test (RelWithDebInfo)
+        env:
+          CC: clang
+          CXX: clang++
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          cmake --build build -j"$(nproc)"
+          ctest --test-dir build --output-on-failure
+      - name: build + test (ASan+UBSan)
+        env:
+          CC: clang
+          CXX: clang++
+        run: |
+          cmake -S . -B build-asan -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer" \
+            -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all"
+          cmake --build build-asan -j"$(nproc)"
+          ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=print_stacktrace=1 \
+            ctest --test-dir build-asan --output-on-failure
+
+  # L2 — integration on real faults, cross-built to mingw and run under wine64.
+  wine-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: install toolchain + wine
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang cmake ninja-build \
+            gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 mingw-w64-x86-64-dev wine wine64
+      - name: cross-build
+        run: |
+          cmake -S . -B build-wine -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-mingw-clang.cmake \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          cmake --build build-wine -j"$(nproc)"
+      - name: run harness under wine64
+        env:
+          WINEDEBUG: "-all"
+          WINEDLLOVERRIDES: "mscoree,mshtml=d"
+        run: |
+          export WINEPREFIX="$PWD/.wineprefix"
+          WINE="$(command -v wine64 || echo /usr/lib/wine/wine64)"
+          "$WINE" build-wine/tests/wine/nias_fault_injection.exe "$PWD/nias_fault.log"
+
+  # L3 — authoritative: real Windows, real ntdll. LLVM/Clang only (no MSVC
+  # cl.exe, no Visual Studio generator) — both clang driver flavours. The
+  # Windows SDK / MSVC headers+import libs are still required for <windows.h>
+  # and ntdll.lib; msvc-dev-cmd puts them on INCLUDE/LIB, clang does the rest.
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: install Ninja
+        shell: pwsh
+        run: choco install ninja -y --no-progress
+      - name: set up MSVC SDK environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: show clang
+        shell: pwsh
+        run: clang --version
+      - name: configure
+        shell: pwsh
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DCMAKE_C_COMPILER=clang
+          -DCMAKE_CXX_COMPILER=clang++
+      - name: build
+        run: cmake --build build -j
+      - name: test
+        run: ctest --test-dir build --output-on-failure
