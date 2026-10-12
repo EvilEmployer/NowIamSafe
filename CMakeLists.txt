@@ -3,9 +3,10 @@ project(nias LANGUAGES C CXX)
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
-# Portable core and tests build at C++23 (floor that clang 18 / mingw-g++ 13
-# handle); the clang-24 CI job bumps this to 26 and adds the module facade.
-set(NIAS_CXX_STANDARD "23" CACHE STRING "C++ standard: 23 (portable) or 26 (clang24)")
+# Floor is C++20: the portable core and Win32 layer are C++20-clean and build
+# on clang 18, mingw-g++ 13, MSVC and clang-cl without standard-mapping
+# surprises. The clang-24 target bumps this to 26 (-DNIAS_CXX_STANDARD=26).
+set(NIAS_CXX_STANDARD "20" CACHE STRING "C++ standard (20 floor; 26 on clang 24)")
 set(CMAKE_CXX_STANDARD ${NIAS_CXX_STANDARD})
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)

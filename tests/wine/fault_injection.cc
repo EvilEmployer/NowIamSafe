@@ -13,6 +13,7 @@
 
 #include "nias/nias.hh"
 #include "nias/record.hh"
+#include "opaque.hh"
 
 namespace {
 
@@ -30,42 +31,28 @@ int g_fails = 0;
         }                                                                 \
     } while (0)
 
-// Keep the optimizer from folding away the faulting code.
-void escape(void* p) {
-    __asm__ __volatile__("" : : "r"(p) : "memory");
-}
-
-// Launder a value so the compiler cannot prove it (dereferencing null or
-// dividing by zero is UB; without this the optimizer elides the faulting op
-// instead of letting it trap at runtime).
-template <class T>
-T opaque(T v) {
-    __asm__ __volatile__("" : "+r"(v));
-    return v;
-}
-
 // Non-leaf: a real stack frame and a call, so it carries .pdata and exercises
 // the RtlVirtualUnwind path.
-__attribute__((noinline)) int deref_nonleaf(volatile int* p) {
+NIAS_NOINLINE int deref_nonleaf(int* p) {
     char buf[128];
     for (int i = 0; i < static_cast<int>(sizeof(buf)); ++i) {
         buf[i] = static_cast<char>(i);
     }
-    escape(buf);
+    harness::use(buf);
     return *p + buf[0];  // AV when p == nullptr
 }
 
 // Leaf: no frame, no .pdata — exercises the leaf-pop path.
-__attribute__((noinline)) int deref_leaf(volatile int* p) { return *p; }
+NIAS_NOINLINE int deref_leaf(int* p) { return *p; }
 
-__attribute__((noinline)) int store_null(volatile int* p) {
+NIAS_NOINLINE int store_null(int* p) {
     *p = 0x55;  // AV write
-    // Opaque so the caller actually reloads eax after the call; a constant
-    // return would be folded in and hide the sentinel.
-    return opaque<int>(7);
+    // Opaque return so the caller actually reloads the result register; a
+    // constant return would be folded in and hide the sentinel.
+    return harness::launder_int(7);
 }
 
-__attribute__((noinline)) int divide(int a, int b) { return a / b; }  // #DE
+NIAS_NOINLINE int divide(int a, int b) { return a / b; }  // #DE
 
 std::vector<nias::FaultRecord> read_records(const char* path) {
     std::vector<nias::FaultRecord> out;
@@ -100,19 +87,19 @@ int main(int argc, char** argv) {
     cfg.backtrace_depth = 16;
     CHECK(nias::init(cfg));
 
-    const int r1 = deref_nonleaf(opaque<volatile int*>(nullptr));
+    const int r1 = deref_nonleaf(harness::launder_ptr(nullptr));
     std::printf("[harness] survived non-leaf AV, returned %d\n", r1);
     CHECK(r1 == 0);  // sentinel return
 
-    const int r2 = deref_leaf(opaque<volatile int*>(nullptr));
+    const int r2 = deref_leaf(harness::launder_ptr(nullptr));
     std::printf("[harness] survived leaf AV, returned %d\n", r2);
     CHECK(r2 == 0);
 
-    const int r3 = store_null(opaque<volatile int*>(nullptr));
+    const int r3 = store_null(harness::launder_ptr(nullptr));
     std::printf("[harness] survived AV write, returned %d\n", r3);
     CHECK(r3 == 0);
 
-    const int r4 = divide(42, opaque<int>(0));
+    const int r4 = divide(42, harness::launder_int(0));
     std::printf("[harness] survived divide-by-zero, returned %d\n", r4);
     CHECK(r4 == 0);
 
