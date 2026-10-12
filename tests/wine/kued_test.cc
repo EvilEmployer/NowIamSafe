@@ -33,6 +33,25 @@ NIAS_NOINLINE int deref_leaf(int* p) { return *p; }
 int main(int argc, char** argv) {
     const char* log_path = (argc > 1) ? argv[1] : "nias_kued.log";
 
+    // Unbuffered so the diagnostics below survive a crash in the fault path.
+    std::setvbuf(stdout, nullptr, _IONBF, 0);
+
+    // Dump the real prologue so a build whose layout analyze doesn't match is
+    // diagnosable from the CI log.
+    if (HMODULE ntdll = GetModuleHandleA("ntdll.dll")) {
+        auto* kued = reinterpret_cast<const unsigned char*>(
+            GetProcAddress(ntdll, "KiUserExceptionDispatcher"));
+        std::printf("[kued] KiUserExceptionDispatcher=%p\n",
+                    reinterpret_cast<const void*>(kued));
+        if (kued) {
+            std::printf("[kued] prologue:");
+            for (int i = 0; i < 48; ++i) {
+                std::printf(" %02X", kued[i]);
+            }
+            std::printf("\n");
+        }
+    }
+
     nias::Config cfg;
     cfg.log_path = log_path;
     CHECK(nias::init(cfg));
