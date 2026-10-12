@@ -39,3 +39,27 @@ tools/symbolize/  оффлайн-символизация записей по PD
 | L3 | GitHub Actions `windows-latest` | **авторитетно**: clang24/MSVC, полный сьют |
 
 Целевой тулчейн — Clang 24, `-std=c++2c`, x64. Подробности сборки — в `docs/DESIGN.md`.
+
+## Сборка и тесты
+
+```sh
+# L1 — portable-core нативно (Linux/clang или Windows/MSVC)
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+cmake --build build -j
+ctest --test-dir build --output-on-failure
+
+# L2 — fault-injection под wine64 (кросс clang -> mingw-w64)
+scripts/run-wine-harness.sh
+```
+
+Флор стандарта — C++20 (собирается на clang 18 / mingw-g++ 13 / MSVC / clang-cl);
+для clang 24 — `-DNIAS_CXX_STANDARD=26`.
+
+## Чтение лога
+
+Лог бинарный: только `{module_base, rva}` + контекст, символизация — оффлайн по PDB.
+
+```sh
+tools/symbolize/nias_symbolize.py app.nias.log            # module+rva
+tools/symbolize/nias_symbolize.py app.nias.log --exe app.exe   # + llvm-symbolizer
+```
