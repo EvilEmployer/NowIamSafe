@@ -1,5 +1,6 @@
-# L1: native portable-core tests (not built in the mingw/Wine configuration).
-if(NOT WIN32)
+# L1: native portable-core tests. Skipped only in the mingw cross build (where
+# std::thread brings libstdc++ quirks); they build natively on Linux and MSVC.
+if(NOT CMAKE_CROSSCOMPILING)
   find_package(Threads REQUIRED)
 
   add_executable(nias_portable_tests
