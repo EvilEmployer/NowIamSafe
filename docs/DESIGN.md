@@ -22,13 +22,20 @@
 - **asmjit** — пул fallback-стабов для узкого кейса (§6.3).
 - Форма поставки: статическая либа в `.exe`/`.dll` + опциональная DLL-обёртка.
 
-### v2 (отдельная ветка, не сейчас)
-- `KuedSource`: хук `KiUserExceptionDispatcher` за asm-переходником (`__declspec(naked)`
-  на clang x64 нет → отдельный `.asm`). Нужен для софта, который чистит
-  `LdrpVectorHandlerList` или держит свой Kued-хук (VMProtect/Themida, анти-отладка).
-- Причина выноса: layout вызова диспетчера менялся между билдами Win11 — это
-  завязка на конкретную версию ntdll, её нельзя стабилизировать, пока базовый
-  VEH-слой не обкатан.
+### v2 (ветка nias/v2-kued — реализовано)
+- Хук `KiUserExceptionDispatcher` через inline-patch (14-байтный `jmp [rip]`) +
+  голый asm-переходник `kued_thunk.S` (`.intel_syntax`; `__declspec(naked)` на
+  clang x64 нет). Встаёт выше всей VEH-цепочки — для софта, который чистит
+  `LdrpVectorHandlerList` или держит свой Kued-хук.
+- **Самоадаптация под билд:** смещения ContextRecord/ExceptionRecord от RSP и
+  адрес неэкспортируемого `RtlDispatchException` извлекаются из пролога на этапе
+  установки (Zydis), а не хардкодятся — layout менялся между билдами ntdll.
+- **Без трамплина:** пролог не релоцируется (там rip-relative и relative-branch).
+  Если мы не восстановили сами, переходник реплицирует штатную диспетчеризацию
+  (`RtlDispatchException` → `NtContinue`/`NtRaiseException`).
+- Общий конвейер с VEH через `process_fault`; `uninstall_kued` восстанавливает
+  оригинал. Валидация: Wine (хук ловит AV раньше VEH, `hits 0→1`); реальная
+  Windows — отдельный ctest-тест `kued` (не маскирует v1 при расхождении layout).
 
 Архитектура v1 обязана оставлять место под v2: диспетчеризация скрыта за
 интерфейсом `IDispatchSource`, у которого в v1 единственная реализация `VehSource`.

@@ -74,20 +74,7 @@ LONG CALLBACK handler(EXCEPTION_POINTERS* ep) {
     const EXCEPTION_RECORD* er = ep->ExceptionRecord;
     CONTEXT* ctx = ep->ContextRecord;
 
-    FaultEvent ev;
-    win32::fill_event(ev, *er, *ctx);
-    g_faults.fetch_add(1, std::memory_order_relaxed);
-
-    const RuntimeFacts facts = win32::gather_facts(*ctx);
-    const RecoveryPlan p = plan(ev, g_policy, facts);
-
-    // Snapshot everything (backtrace included) from the original context before
-    // apply() rewrites it.
-    FaultRecord rec{};
-    build_record(rec, ev, p, *ctx);
-    win32::log_push(rec);
-
-    switch (win32::apply(p, *ctx)) {
+    switch (win32::process_fault(*er, *ctx)) {
         case win32::Disposition::continue_execution:
             g_recovered.fetch_add(1, std::memory_order_relaxed);
             return EXCEPTION_CONTINUE_EXECUTION;
@@ -108,6 +95,27 @@ LONG CALLBACK handler(EXCEPTION_POINTERS* ep) {
 }
 
 }  // namespace
+
+namespace win32 {
+
+Disposition process_fault(const EXCEPTION_RECORD& er, CONTEXT& ctx) noexcept {
+    FaultEvent ev;
+    fill_event(ev, er, ctx);
+    g_faults.fetch_add(1, std::memory_order_relaxed);
+
+    const RuntimeFacts facts = gather_facts(ctx);
+    const RecoveryPlan p = plan(ev, g_policy, facts);
+
+    // Snapshot (backtrace included) from the original context before apply()
+    // rewrites it.
+    FaultRecord rec{};
+    build_record(rec, ev, p, ctx);
+    log_push(rec);
+
+    return apply(p, ctx);
+}
+
+}  // namespace win32
 
 bool init(const Config& cfg) noexcept {
     bool expected = false;
