@@ -111,4 +111,21 @@ std::uint32_t scan_prologue_alloc(const std::uint8_t* fn_start,
     return total;
 }
 
+std::optional<std::size_t> find_function_start(const std::uint8_t* buf,
+                                               std::size_t size,
+                                               std::size_t rip_off,
+                                               std::size_t max_lookback) noexcept {
+    if (buf == nullptr || rip_off == 0 || rip_off > size) {
+        return std::nullopt;
+    }
+    const std::size_t lo = rip_off > max_lookback ? rip_off - max_lookback : 0;
+    for (std::size_t i = rip_off; i > lo;) {
+        --i;
+        if (buf[i] == 0xCC) {
+            return i + 1;  // first byte after the int3 padding run
+        }
+    }
+    return std::nullopt;
+}
+
 }  // namespace nias

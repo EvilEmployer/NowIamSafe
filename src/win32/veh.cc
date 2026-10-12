@@ -94,6 +94,10 @@ LONG CALLBACK handler(EXCEPTION_POINTERS* ep) {
         case win32::Disposition::continue_search:
             g_passed.fetch_add(1, std::memory_order_relaxed);
             return EXCEPTION_CONTINUE_SEARCH;
+        case win32::Disposition::jump_safepoint:
+            g_recovered.fetch_add(1, std::memory_order_relaxed);
+            tls_in_handler = 0;          // clear the guard before the non-returning jump
+            win32::safepoint_restore();  // RtlRestoreContext; does not return
         case win32::Disposition::fast_fail:
         case win32::Disposition::terminate:
             TerminateProcess(GetCurrentProcess(),
@@ -146,6 +150,8 @@ Stats stats() noexcept {
         win32::log_dropped(),
     };
 }
+
+void set_policy(FaultClass cls, Action action) noexcept { g_policy.set(cls, action); }
 
 }  // namespace nias
 

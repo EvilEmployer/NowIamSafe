@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 
 namespace nias {
 
@@ -28,5 +29,15 @@ DecodeInfo decode_at(const std::uint8_t* code, std::size_t avail,
 // for code that has no .pdata. Returns 0 when nothing recognizable is found.
 std::uint32_t scan_prologue_alloc(const std::uint8_t* fn_start,
                                   std::size_t avail) noexcept;
+
+// Heuristic function-start finder: scan backward from `rip_off` for the int3
+// (0xCC) padding that separates functions on Windows (MSVC/clang emit it), and
+// return the offset of the first byte after the nearest padding run. Returns
+// nullopt if no boundary is found within `max_lookback` bytes. Used only to
+// anchor scan_prologue_alloc for code without unwind metadata.
+std::optional<std::size_t> find_function_start(const std::uint8_t* buf,
+                                               std::size_t size,
+                                               std::size_t rip_off,
+                                               std::size_t max_lookback) noexcept;
 
 }  // namespace nias

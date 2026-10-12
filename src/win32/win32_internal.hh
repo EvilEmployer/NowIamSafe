@@ -13,6 +13,7 @@ namespace nias::win32 {
 enum class Disposition {
     continue_execution,  // mutated context is good; resume
     continue_search,     // let the next handler run
+    jump_safepoint,      // RtlRestoreContext to the nearest safe-point (no return)
     fast_fail,           // terminate now (unrecoverable)
     terminate,           // controlled process exit
 };
@@ -39,5 +40,9 @@ bool log_start(const char* path, std::uint32_t ring_pow2) noexcept;
 void log_stop() noexcept;
 void log_push(const FaultRecord& rec) noexcept;  // encode + enqueue; never blocks
 std::uint64_t log_dropped() noexcept;
+
+// safepoint.cc ------------------------------------------------------------
+bool safepoint_available() noexcept;        // a safe-point is registered on this thread
+[[noreturn]] void safepoint_restore() noexcept;  // RtlRestoreContext to the top safe-point
 
 }  // namespace nias::win32

@@ -68,3 +68,26 @@ TEST_CASE("scan_prologue_alloc: stops at the first non-prologue instruction") {
     const std::uint8_t code[] = {0x48, 0x83, 0xEC, 0x10, 0xC3};
     CHECK(scan_prologue_alloc(code, sizeof(code)) == 0x10u);
 }
+
+TEST_CASE("find_function_start locates the int3 boundary + sizes the frame") {
+    // 90           tail of previous function
+    // CC CC        int3 padding
+    // 55 48 83 EC 20   push rbp; sub rsp, 0x20   (function starts at index 3)
+    // 8B 01            mov eax, [rcx]            (fault site, index 8)
+    const std::uint8_t buf[] = {0x90, 0xCC, 0xCC, 0x55, 0x48,
+                                0x83, 0xEC, 0x20, 0x8B, 0x01};
+    const auto start = find_function_start(buf, sizeof(buf), 8, 64);
+    REQUIRE(start.has_value());
+    CHECK(*start == 3);
+    CHECK(scan_prologue_alloc(buf + *start, sizeof(buf) - *start) == 8u + 0x20u);
+}
+
+TEST_CASE("find_function_start: nullopt when no padding is in range") {
+    const std::uint8_t no_pad[] = {0x55, 0x48, 0x83, 0xEC, 0x20, 0x8B, 0x01};
+    CHECK_FALSE(find_function_start(no_pad, sizeof(no_pad), 6, 64).has_value());
+
+    const std::uint8_t pad_far[] = {0xCC, 0x55, 0x48, 0x83, 0xEC, 0x20, 0x8B, 0x01};
+    CHECK_FALSE(find_function_start(pad_far, sizeof(pad_far), 7, 2).has_value());
+    REQUIRE(find_function_start(pad_far, sizeof(pad_far), 7, 64).has_value());
+    CHECK(find_function_start(pad_far, sizeof(pad_far), 7, 64).value() == 1);
+}
