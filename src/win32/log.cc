@@ -94,7 +94,7 @@ void log_push(const FaultRecord& rec) noexcept {
         return;
     }
     std::uint8_t buf[kSlot];
-    const std::size_t n = encode(rec, buf, sizeof(buf));
+    const std::size_t n = encode(rec, buf);
     if (n == 0 || !g_ring->push(buf, static_cast<std::uint32_t>(n))) {
         g_dropped.fetch_add(1, std::memory_order_relaxed);
     }

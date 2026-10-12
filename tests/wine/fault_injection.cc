@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <span>
 #include <vector>
 
 #include "nias/nias.hh"
@@ -118,7 +119,7 @@ std::vector<nias::FaultRecord> read_records(const char* path) {
             break;
         }
         nias::FaultRecord rec{};
-        if (nias::decode(buf.data(), len, rec)) {
+        if (nias::decode(std::span(buf.data(), len), rec)) {
             out.push_back(rec);
         }
     }

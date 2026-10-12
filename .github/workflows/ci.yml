@@ -15,19 +15,19 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            clang ninja-build cmake libclang-rt-18-dev
+            clang-20 ninja-build cmake libclang-rt-20-dev
       - name: build + test (RelWithDebInfo)
         env:
-          CC: clang
-          CXX: clang++
+          CC: clang-20
+          CXX: clang++-20
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
           cmake --build build -j"$(nproc)"
           ctest --test-dir build --output-on-failure
       - name: build + test (ASan+UBSan)
         env:
-          CC: clang
-          CXX: clang++
+          CC: clang-20
+          CXX: clang++-20
         run: |
           cmake -S . -B build-asan -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
             -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer" \
@@ -46,9 +46,12 @@ jobs:
           sudo dpkg --add-architecture i386
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            clang cmake ninja-build \
+            clang-20 cmake ninja-build \
             gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 mingw-w64-x86-64-dev wine wine64
       - name: cross-build
+        env:
+          NIAS_CC: clang-20
+          NIAS_CXX: clang++-20
         run: |
           cmake -S . -B build-wine -G Ninja \
             -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-mingw-clang.cmake \

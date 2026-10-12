@@ -1,5 +1,4 @@
 add_library(nias_core STATIC
-  portable/policy.cc
   portable/record.cc
   portable/decode.cc
   portable/stub.cc)
