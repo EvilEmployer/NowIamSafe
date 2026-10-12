@@ -1,4 +1,5 @@
 #include <atomic>
+#include <utility>
 
 #include "nias/decode.hh"
 #include "nias/nias.hh"
@@ -34,9 +35,9 @@ void build_record(FaultRecord& rec, const FaultEvent& ev, const RecoveryPlan& p,
     rec.timestamp = now_qpc();
     rec.thread_id = ev.thread_id;
     rec.native_code = ev.native_code;
-    rec.fault_class = static_cast<std::uint8_t>(ev.cls);
-    rec.av_access = static_cast<std::uint8_t>(ev.av_access);
-    rec.action_taken = static_cast<std::uint8_t>(p.action);
+    rec.fault_class = std::to_underlying(ev.cls);
+    rec.av_access = std::to_underlying(ev.av_access);
+    rec.action_taken = std::to_underlying(p.action);
 
     const DecodeInfo d = decode_at(ev.code, ev.code_avail, ev.ctx.rip);
     rec.insn_length = d.valid ? d.length : 0;

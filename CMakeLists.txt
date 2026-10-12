@@ -1,12 +1,13 @@
-cmake_minimum_required(VERSION 3.24)
+cmake_minimum_required(VERSION 3.26)
 project(nias LANGUAGES C CXX)
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
-# Floor is C++20: the portable core and Win32 layer are C++20-clean and build
-# on clang 18, mingw-g++ 13, MSVC and clang-cl without standard-mapping
-# surprises. The clang-24 target bumps this to 26 (-DNIAS_CXX_STANDARD=26).
-set(NIAS_CXX_STANDARD "20" CACHE STRING "C++ standard (20 floor; 26 on clang 24)")
+# C++26 (-std=c++2c). clang 18+ compiles everything here in c++2c mode; the
+# code stays within features current clang actually implements (no reflection
+# in the tree yet — see docs/DESIGN.md). Override for an older compiler with
+# -DNIAS_CXX_STANDARD=20.
+set(NIAS_CXX_STANDARD "26" CACHE STRING "C++ standard (26 default; 20 floor)")
 set(CMAKE_CXX_STANDARD ${NIAS_CXX_STANDARD})
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
