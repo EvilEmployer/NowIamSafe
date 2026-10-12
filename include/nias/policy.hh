@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <utility>
 
 #include "nias/fault.hh"
 
@@ -34,7 +35,7 @@ public:
 
 private:
     static constexpr std::size_t idx(FaultClass c) noexcept {
-        return static_cast<std::size_t>(c);
+        return std::to_underlying(c);
     }
     std::array<Policy, static_cast<std::size_t>(FaultClass::count_)> table_{};
 };
